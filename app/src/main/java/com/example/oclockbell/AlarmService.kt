@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -31,10 +33,13 @@ class AlarmService : Service() {
 
     private var tts: TextToSpeech? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var audioManager: AudioManager? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        audioManager = getSystemService(AudioManager::class.java)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -55,6 +60,7 @@ class AlarmService : Service() {
     // ── TTS ──────────────────────────────────────────────────────────
 
     private fun playTts(hour: Int, onDone: () -> Unit) {
+        requestAudioFocus()
         tts = TextToSpeech(this) { status ->
             if (status != TextToSpeech.SUCCESS) {
                 mainHandler.post(onDone)
@@ -97,6 +103,9 @@ class AlarmService : Service() {
                 .setContentText(label)
                 .setContentIntent(tapIntent)
                 .setAutoCancel(true)
+                .setCategory(Notification.CATEGORY_ALARM)
+                .setOngoing(true)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .build()
         } else {
             @Suppress("DEPRECATION")
@@ -106,6 +115,10 @@ class AlarmService : Service() {
                 .setContentText(label)
                 .setContentIntent(tapIntent)
                 .setAutoCancel(true)
+                .setCategory(Notification.CATEGORY_ALARM)
+                .setOngoing(true)
+                .setPriority(Notification.PRIORITY_MAX)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .build()
         }
     }
@@ -118,20 +131,54 @@ class AlarmService : Service() {
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "매 정시 알람 소리"
-            setSound(
-                android.provider.Settings.System.DEFAULT_ALARM_ALERT_URI,
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .build()
-            )
+            setSound(null, null)
+            enableVibration(false)
+            setBypassDnd(true)
         }
         getSystemService(NotificationManager::class.java)
             .createNotificationChannel(ch)
     }
 
+    private fun requestAudioFocus() {
+        val manager = audioManager ?: return
+        val attributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ALARM)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                .setAudioAttributes(attributes)
+                .setAcceptsDelayedFocusGain(false)
+                .setOnAudioFocusChangeListener { }
+                .build()
+            audioFocusRequest = request
+            manager.requestAudioFocus(request)
+        } else {
+            @Suppress("DEPRECATION")
+            manager.requestAudioFocus(
+                null,
+                AudioManager.STREAM_ALARM,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE
+            )
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        val manager = audioManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let(manager::abandonAudioFocusRequest)
+        } else {
+            @Suppress("DEPRECATION")
+            manager.abandonAudioFocus(null)
+        }
+        audioFocusRequest = null
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        abandonAudioFocus()
         tts?.shutdown()
         tts = null
         super.onDestroy()
