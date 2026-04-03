@@ -13,7 +13,6 @@ import android.os.IBinder
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import java.util.Locale
 
 class AlarmService : Service() {
 
@@ -62,17 +61,7 @@ class AlarmService : Service() {
                 return@TextToSpeech
             }
 
-            tts?.language    = Locale.KOREAN
-            tts?.setPitch(1.5f)
-            tts?.setSpeechRate(0.85f)
-
-            // USAGE_ALARM → plays at alarm volume even in vibrate/silent mode
-            tts?.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build()
-            )
+            tts?.let { TtsSupport.applySavedConfig(it, this) }
 
             tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(id: String?) {}
@@ -80,7 +69,12 @@ class AlarmService : Service() {
                 override fun onError(id: String?) { mainHandler.post(onDone) }
             })
 
-            tts?.speak(HOUR_KO[hour], TextToSpeech.QUEUE_FLUSH, null, "oclock_$hour")
+            tts?.speak(
+                HOUR_KO[hour],
+                TextToSpeech.QUEUE_FLUSH,
+                TtsSupport.buildSpeakParams(this),
+                "oclock_$hour"
+            )
         }
     }
 

@@ -25,6 +25,18 @@ object AlarmPrefs {
         get()      = prefs(this).getBoolean("testMode", false)
         set(value) = prefs(this).edit().putBoolean("testMode", value).apply()
 
+    var Context.ttsPitch: Float
+        get()      = prefs(this).getFloat("ttsPitch", 1.5f)
+        set(value) = prefs(this).edit().putFloat("ttsPitch", value).apply()
+
+    var Context.ttsRate: Float
+        get()      = prefs(this).getFloat("ttsRate", 0.8f)
+        set(value) = prefs(this).edit().putFloat("ttsRate", value).apply()
+
+    var Context.ttsVolume: Float
+        get()      = prefs(this).getFloat("ttsVolume", 1.0f)
+        set(value) = prefs(this).edit().putFloat("ttsVolume", value).apply()
+
     fun Context.isInRange(hour: Int): Boolean {
         val s = startHour; val e = endHour
         return if (s <= e) hour in s until e else hour >= s || hour < e
