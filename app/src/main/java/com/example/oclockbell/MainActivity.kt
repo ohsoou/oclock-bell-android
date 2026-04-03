@@ -26,19 +26,58 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
+    companion object {
+        private const val PREFS = "main_activity_requirements"
+        private const val KEY_NOTIF_REQUESTED = "notification_permission_requested"
+    }
+
+    private enum class Requirement {
+        NOTIFICATION,
+        EXACT_ALARM,
+        BATTERY_OPTIMIZATION
+    }
+
     private lateinit var webView: WebView
     private lateinit var errorOverlay: View
     private lateinit var errorMessage: TextView
 
+    private var currentWebPage: String = "main"
     private var pendingGeoOrigin: String? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
     private var mainFrameLoadFailed = false
+    private var shouldRecheckRequirements = false
+    private var hasInitializedWebView = false
+    private var pendingRequirement: Requirement? = null
+    private var skipRequirementCheckOnNextResume = false
+    private var allowMainScreenUntilExit = false
+    private val requirementPrefs by lazy {
+        getSharedPreferences(PREFS, MODE_PRIVATE)
+    }
 
     private val notifPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                pendingRequirement = null
+                ensureRequirementsAndLoad()
+            } else {
+                openNotificationSettings()
+            }
+        }
 
     private val exactAlarmSettings =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { /* no-op */ }
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            handleSettingsReturn(Requirement.EXACT_ALARM)
+        }
+
+    private val notificationSettings =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            handleSettingsReturn(Requirement.NOTIFICATION)
+        }
+
+    private val batteryOptimizationSettings =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            handleSettingsReturn(Requirement.BATTERY_OPTIMIZATION)
+        }
 
     private val locationPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -134,8 +173,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        loadWebApp()
-        requestPermissions()
+        ensureRequirementsAndLoad()
     }
 
     private fun loadWebApp() {
@@ -159,32 +197,131 @@ class MainActivity : AppCompatActivity() {
 
     // ── Permissions ───────────────────────────────────────────────────
 
-    private fun requestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    private fun ensureRequirementsAndLoad(afterUserAction: Requirement? = null) {
+        if (allowMainScreenUntilExit) {
+            pendingRequirement = null
+            shouldRecheckRequirements = false
+            if (!hasInitializedWebView) {
+                hasInitializedWebView = true
+                loadWebApp()
+            }
+            return
         }
 
-        if (Build.VERSION.SDK_INT in 31..32) {
-            val am = getSystemService(AlarmManager::class.java)
-            if (!am.canScheduleExactAlarms()) {
-                exactAlarmSettings.launch(
-                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-                )
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED -> {
+                if (afterUserAction == Requirement.NOTIFICATION) {
+                    closeApp()
+                } else {
+                    shouldRecheckRequirements = false
+                    pendingRequirement = Requirement.NOTIFICATION
+                    if (shouldRequestNotificationPermissionDialog()) {
+                        requirementPrefs.edit().putBoolean(KEY_NOTIF_REQUESTED, true).apply()
+                        notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        openNotificationSettings()
+                    }
+                }
+            }
+            Build.VERSION.SDK_INT in 31..32 &&
+                !getSystemService(AlarmManager::class.java).canScheduleExactAlarms() -> {
+                if (afterUserAction == Requirement.EXACT_ALARM) {
+                    closeApp()
+                } else {
+                    shouldRecheckRequirements = false
+                    pendingRequirement = Requirement.EXACT_ALARM
+                    exactAlarmSettings.launch(
+                        Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                    )
+                }
+            }
+            !isIgnoringBatteryOptimizations() -> {
+                if (afterUserAction == Requirement.BATTERY_OPTIMIZATION) {
+                    closeApp()
+                } else {
+                    shouldRecheckRequirements = false
+                    pendingRequirement = Requirement.BATTERY_OPTIMIZATION
+                    requestBatteryOptimizationExemption()
+                }
+            }
+            else -> {
+                pendingRequirement = null
+                shouldRecheckRequirements = false
+                if (!hasInitializedWebView) {
+                    hasInitializedWebView = true
+                    loadWebApp()
+                }
             }
         }
+    }
 
-        requestBatteryOptimizationExemption()
+    private fun handleSettingsReturn(requirement: Requirement) {
+        val requirementSatisfied = when (requirement) {
+            Requirement.NOTIFICATION -> {
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                    ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+            }
+            Requirement.EXACT_ALARM -> {
+                Build.VERSION.SDK_INT !in 31..32 ||
+                    getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
+            }
+            Requirement.BATTERY_OPTIMIZATION -> isIgnoringBatteryOptimizations()
+        }
+
+        if (requirementSatisfied) {
+            pendingRequirement = null
+            ensureRequirementsAndLoad()
+            return
+        }
+
+        pendingRequirement = null
+        shouldRecheckRequirements = false
+        skipRequirementCheckOnNextResume = true
+        allowMainScreenUntilExit = true
+        if (!hasInitializedWebView) {
+            hasInitializedWebView = true
+            loadWebApp()
+        }
     }
 
     fun requestBatteryOptimizationExemption() {
-        val pm = getSystemService(PowerManager::class.java)
-        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-            startActivity(
-                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-            )
-        }
+        batteryOptimizationSettings.launch(
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+        )
+    }
+
+    private fun shouldRequestNotificationPermissionDialog(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+        val requestedBefore = requirementPrefs.getBoolean(KEY_NOTIF_REQUESTED, false)
+        return !requestedBefore || shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private fun openNotificationSettings() {
+        notificationSettings.launch(
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            }
+        )
+    }
+
+    private fun isIgnoringBatteryOptimizations(): Boolean =
+        getSystemService(PowerManager::class.java)
+            .isIgnoringBatteryOptimizations(packageName)
+
+    private fun closeApp() {
+        clearPendingGeolocationRequest()
+        pendingRequirement = null
+        allowMainScreenUntilExit = false
+        finishAndRemoveTask()
     }
 
     private fun hasLocationPermission(): Boolean =
@@ -204,13 +341,29 @@ class MainActivity : AppCompatActivity() {
 
     // ── WebView back navigation ───────────────────────────────────────
 
+    fun onWebPageChanged(page: String) {
+        currentWebPage = page
+    }
+
     @Deprecated("Required override")
     override fun onBackPressed() {
-        if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
+        if (currentWebPage == "settings") {
+            webView.evaluateJavascript("showPage('main')", null)
+        } else {
+            finish()
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        if (skipRequirementCheckOnNextResume) {
+            skipRequirementCheckOnNextResume = false
+            shouldRecheckRequirements = true
+        } else if (shouldRecheckRequirements) {
+            ensureRequirementsAndLoad(afterUserAction = pendingRequirement)
+        } else {
+            shouldRecheckRequirements = true
+        }
         webView.onResume()
         webView.resumeTimers()
     }

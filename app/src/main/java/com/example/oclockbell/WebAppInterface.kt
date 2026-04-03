@@ -73,11 +73,17 @@ class WebAppInterface(private val context: Context) {
         (context as? MainActivity)?.requestBatteryOptimizationExemption()
     }
 
+    /** Called by the web app whenever it navigates between pages. */
+    @JavascriptInterface
+    fun onPageChanged(page: String) {
+        (context as? MainActivity)?.onWebPageChanged(page)
+    }
+
     private fun notificationsEnabled(): Boolean =
         NotificationManagerCompat.from(context).areNotificationsEnabled()
 
     private fun exactAlarmEnabled(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+        if (Build.VERSION.SDK_INT !in 31..32) return true
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         return alarmManager.canScheduleExactAlarms()
     }
