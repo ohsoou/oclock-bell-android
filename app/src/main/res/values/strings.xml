@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">정시 알람</string>
+    <string name="retry">다시 시도</string>
+    <string name="web_load_error_title">웹 앱을 불러오지 못했어요</string>
+    <string name="web_load_error_message">네트워크 연결과 웹앱 주소를 확인한 뒤 다시 시도해 주세요.</string>
+    <string name="web_load_error_with_reason">네트워크 연결과 웹앱 주소를 확인한 뒤 다시 시도해 주세요.\n원인: %1$s</string>
 </resources>
