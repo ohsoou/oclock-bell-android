@@ -1,15 +1,17 @@
 # Changelog
 
-## [Unreleased] — 2026-04-03
+## [2.0.0] — 2026-07-08
 
 ### Added
 - Configurable TTS support: pitch, rate, and volume can be controlled from web UI (`NativeAlarm.setTtsConfig`, `NativeAlarm.previewTts`)
 - System back button on settings page now navigates to main page instead of closing the app
+- Release signing config (`keystore.properties`-driven) for producing installable release APKs
 
 ### Changed
 - Improved WebView loading with error overlay and retry button
 - Added geolocation permission handling in WebView
 - WebView now appends `OClockBellNative/1.0` to the user-agent for native detection
+- Consolidated alarm default hours (start 8 / end 22) into `AlarmDefaults`, kept in sync with the web app
 
 ---
 
