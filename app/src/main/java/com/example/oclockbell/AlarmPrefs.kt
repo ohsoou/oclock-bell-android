@@ -14,11 +14,11 @@ object AlarmPrefs {
         set(value) = prefs(this).edit().putBoolean("alarmOn", value).apply()
 
     var Context.startHour: Int
-        get()      = prefs(this).getInt("startHour", 8)
+        get()      = prefs(this).getInt("startHour", AlarmDefaults.START_HOUR)
         set(value) = prefs(this).edit().putInt("startHour", value).apply()
 
     var Context.endHour: Int
-        get()      = prefs(this).getInt("endHour", 22)
+        get()      = prefs(this).getInt("endHour", AlarmDefaults.END_HOUR)
         set(value) = prefs(this).edit().putInt("endHour", value).apply()
 
     var Context.testMode: Boolean
